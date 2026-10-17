@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Assertion failures",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*AssertionError.*"
+  },
+  {
+    "name": "Locator / timeout errors",
+    "matchedStatuses": ["failed", "broken"],
+    "messageRegex": ".*(TimeoutError|Timeout \\d+ms exceeded).*"
+  },
+  {
+    "name": "Test or environment problems",
+    "matchedStatuses": ["broken"]
+  }
+]

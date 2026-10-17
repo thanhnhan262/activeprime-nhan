@@ -1,0 +1,163 @@
+name: UI tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Cancel superseded runs on branches/PRs, but never cancel a run on main halfway
+# (it may be about to publish the report).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      report_published: ${{ steps.pages.outcome == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Get Playwright version
+        id: playwright
+        run: echo "version=$(python -c 'from importlib import metadata; print(metadata.version("playwright"))')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Chromium and system dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install --with-deps chromium
+
+      - name: Install system dependencies only (browser cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: playwright install-deps chromium
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      # The app under test lives in ./app. Wait until it answers so pytest never races the
+      # server start-up.
+      - name: Serve the app under test
+        run: |
+          python -m http.server 8080 --directory app > "$RUNNER_TEMP/app-server.log" 2>&1 &
+          for _ in $(seq 1 20); do
+            if curl -fsS -o /dev/null http://localhost:8080/index.html; then
+              echo "App is up on http://localhost:8080"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::App did not start serving within 20 s"
+          cat "$RUNNER_TEMP/app-server.log"
+          exit 1
+
+      - name: Run tests
+        run: pytest
+
+      - name: Check for Allure results
+        id: results
+        if: always()
+        run: |
+          if ls allure-results/*-result.json > /dev/null 2>&1; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-java@v4
+        if: always() && steps.results.outputs.present == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Carry trend history over from the previously published report (404 on the first run
+      # is expected and ignored). Must happen after pytest, which cleans allure-results.
+      - name: Fetch previous Allure history
+        if: always() && steps.results.outputs.present == 'true'
+        run: |
+          mkdir -p allure-results/history
+          owner="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          repo="$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
+          base="https://${owner}.github.io/${repo}/history"
+          for f in history.json history-trend.json duration-trend.json categories-trend.json retry-trend.json; do
+            curl -fsSL "$base/$f" -o "allure-results/history/$f" || rm -f "allure-results/history/$f"
+          done
+          ls -la allure-results/history
+
+      - name: Generate Allure report
+        if: always() && steps.results.outputs.present == 'true'
+        run: |
+          npm install -g allure-commandline
+          allure generate allure-results -o allure-report --clean
+
+      - name: Upload Allure report
+        if: always() && steps.results.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report/
+          if-no-files-found: ignore
+
+      - name: Upload Allure raw results
+        if: always() && steps.results.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results/
+          if-no-files-found: ignore
+
+      - name: Upload traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          if-no-files-found: ignore
+
+      # Only main publishes the report to GitHub Pages (PRs keep the downloadable artifact).
+      - name: Package report for GitHub Pages
+        id: pages
+        if: always() && steps.results.outputs.present == 'true' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: allure-report/
+
+  deploy-report:
+    needs: lint-and-test
+    if: always() && needs.lint-and-test.outputs.report_published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    # Pages deployments must not overlap or be cancelled midway.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy report to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
