@@ -40,20 +40,23 @@ def _configure_expect() -> Iterator[None]:
 def _app_is_running(base_url: str | None) -> None:
     """Abort the whole run early, with instructions, if the app is not being served."""
     if not base_url:
-        pytest.exit("No base URL configured. Set `base_url` in pytest.ini or pass --base-url.", 2)
+        pytest.exit(
+            "No base URL configured. Set `base_url` in pyproject.toml or pass --base-url.", 2
+        )
 
     url = f"{base_url.rstrip('/')}/index.html"
     if urllib.parse.urlparse(url).scheme not in ("http", "https"):
         pytest.exit(f"Unsupported base URL scheme: {url}", 2)
 
     try:
-        with urllib.request.urlopen(url, timeout=3) as response:  # noqa: S310 (scheme checked)
+        with urllib.request.urlopen(url, timeout=3) as response:  # scheme validated above
             if response.status != 200:
                 raise OSError(f"HTTP {response.status}")
     except (urllib.error.URLError, OSError) as exc:
         pytest.exit(
             f"App under test is not reachable at {url} ({exc}).\n"
-            "Start it first (from the repo root):  python -m http.server 8080 --directory app",
+            "Start it first: in a separate terminal, from the repo root, run:\n"
+            "  python3 -m http.server 8080 --directory app",
             2,
         )
 

@@ -1,15 +1,30 @@
 # activeprime-nhan
 
 UI test automation for the mock "GenericCRM" data quality app, built with
-**Playwright for Python (sync API)** and **pytest**, using the Page Object Model.
+**Playwright for Python (sync API)** and **pytest**, using the Page Object Model, and supporting test execution on Github workflows.
 
 ## Prerequisites
 
-- Python 3.10+
-- Nothing else for the app: it is included in this repo under `app/`
-  (unmodified files from the assessment)
+- Python 3.10+ installed
+- App under test is running at http://localhost:8080/index.html
 
-## Install
+## HOW TO RUN TEST
+
+There are 2 ways to run test:
+### 1. Run locally on your computer
+  - Ensure this repo is cloned to your local computer, cd to repo's root directory
+  - Follow steps: Install dependencies > Run the tests > Generate report
+  - You should see the report is open in a new tab
+### 2. Trigger workflows run on Github
+  - Send your github email to mtn1987@gmail.com to get Write access to repo.
+  - After having the Write access, open repo https://github.com/thanhnhan262/activeprime-nhan
+  - Select Actions > Workflows (UI tests)
+  - Click on 'Run workflow' button
+  - Wait for the pipeline complete
+  - Look for 'deploy-report' and click on a report link
+  - You should see the report is open in a new tab
+
+## Install dependencies
 
 ```bash
 python3 -m venv .venv
@@ -21,27 +36,35 @@ playwright install chromium
 ## Run the app under test
 
 The tests expect the app (the `app/` folder of this repo) to already be served at
-`http://localhost:8080`. They do not start it, and they never modify it. In a separate
-terminal, from the repo root:
+`http://localhost:8080`. In a separate
+terminal, from the repo root run:
 
 ```bash
-python -m http.server 8080 --directory app
+python3 -m http.server 8080 --directory app
 ```
 
 If the app is not reachable, the run aborts immediately with that instruction.
 
 ## Run the tests
 
+Run tests with one of following command:
+
 ```bash
+pytest --headed --slowmo 1000            # all tests, watch the browser
 pytest                                   # all tests, headless Chromium
-pytest tests/test_data_issues.py::test_edit_final_row_value   # a single test
-pytest --headed --slowmo 300             # watch the browser
+pytest tests/test_edit_final_row_value.py   # a single test (one file per test)
 pytest --browser firefox                 # needs: playwright install firefox
 pytest --base-url http://localhost:9000  # app served elsewhere (or set PYTEST_BASE_URL)
 ```
 
 Every test is independent: each gets a fresh browser context and starts from
 `/index.html`, so tests can run alone, in any order.
+
+## Generate report
+
+```bash
+allure serve allure-results
+```
 
 ## Debugging failures
 
@@ -84,15 +107,15 @@ each run starts without history.
 
 ```
 conftest.py                 fixtures: app-reachable guard, expect timeout, app/dashboard/issues_page
-pytest.ini                  base_url, failure artifacts (trace + screenshot), Allure output, strict markers
-pyproject.toml              ruff configuration
+pyproject.toml              pytest config (base_url, trace/screenshot on failure, Allure output,
+                            strict markers) and ruff configuration
 app/                        the app under test (index.html, vf-container.html, app.html), unmodified
 pages/
   app_shell.py              index.html, welcome modal + banner, access to the nested iframes
   dashboard_page.py         dashboard -> "Review & Fix Issues"
   data_issues_page.py       issue grid, select-all, selection counter
   components/issue_card.py  one issue card (checkbox, radios, original/final rows, inline edit)
-tests/test_data_issues.py   the 5 tests
+tests/                      one file per test (5 tests)
 utils/allure_helpers.py     Allure attachments (screenshot, trace) and environment info
 reporting/categories.json   Allure failure categories
 .github/workflows/tests.yml lint, test, Allure report, GitHub Pages publish

@@ -47,7 +47,7 @@ def attach_screenshot(page: Page, name: str) -> None:
     """Attach a PNG of the page; never let a screenshot problem change the test result."""
     try:
         allure.attach(page.screenshot(), name=name, attachment_type=allure.attachment_type.PNG)
-    except Exception as exc:  # noqa: BLE001 - e.g. the page/browser is already closed
+    except Exception as exc:  # e.g. the page/browser is already closed
         allure.attach(
             f"Could not capture screenshot: {exc}",
             name=f"{name} (unavailable)",
